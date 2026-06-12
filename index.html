@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Minimal World Cup fixture and betting-market research."
+    />
+    <title>Touchline - World Cup Research</title>
+    <link rel="stylesheet" href="./styles.css?v=5" />
+  </head>
+  <body>
+    <header class="site-header" aria-label="Application header">
+      <a class="brand" href="#" aria-label="Touchline home">
+        <span class="brand-mark" aria-hidden="true">T</span>
+        <span>
+          <strong>Touchline</strong>
+          <small>World Cup research</small>
+        </span>
+      </a>
+
+      <div class="header-actions">
+        <div class="sync-status" id="syncPill" aria-live="polite">
+          <span class="sync-dot" aria-hidden="true"></span>
+          <span id="syncText">Connecting</span>
+        </div>
+        <div class="odds-status" id="oddsPill" aria-live="polite">
+          <span>Pinnacle</span>
+          <strong id="oddsText">Loading</strong>
+        </div>
+        <span id="timezoneLabel" class="visually-hidden">Local</span>
+        <button class="refresh-button" id="refreshButton" type="button" aria-label="Refresh data">
+          <span class="refresh-icon" aria-hidden="true"></span>
+          <span>Refresh</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="page-intro" aria-labelledby="pageTitle">
+        <div>
+          <p class="eyebrow">2026 FIFA World Cup</p>
+          <h1 id="pageTitle">Fixtures, without the noise.</h1>
+          <p class="intro-copy">
+            Open a match for market prices, the last five internationals, full match stats,
+            and evidence-led prop angles.
+          </p>
+        </div>
+
+        <div class="summary-line" aria-label="Fixture summary">
+          <span><strong id="totalMatches">-</strong> fixtures</span>
+          <span><strong id="todayMatches">-</strong> today</span>
+          <span><strong id="oddsMatches">-</strong> priced</span>
+          <span>Next <strong id="nextKickoff">-</strong></span>
+        </div>
+      </section>
+
+      <section class="filter-bar" aria-label="Fixture filters">
+        <div class="search-wrap">
+          <label for="searchInput">Find a team</label>
+          <input
+            id="searchInput"
+            type="search"
+            placeholder="Search teams or venues"
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="select-wrap">
+          <label for="competitionFilter">Competition</label>
+          <select id="competitionFilter">
+            <option value="all">All competitions</option>
+          </select>
+        </div>
+
+        <fieldset class="range-control" aria-label="Date range">
+          <legend>Window</legend>
+          <button class="range-option is-active" type="button" data-range="7">7 days</button>
+          <button class="range-option" type="button" data-range="14">14 days</button>
+          <button class="range-option" type="button" data-range="30">30 days</button>
+          <button class="range-option" type="button" data-range="60">60 days</button>
+        </fieldset>
+      </section>
+
+      <div class="state-message" id="stateMessage" hidden></div>
+
+      <section class="schedule-panel" aria-labelledby="matchesTitle">
+        <header class="section-header">
+          <h2 id="matchesTitle">Upcoming matches</h2>
+          <span id="resultsLabel">Loading fixtures</span>
+        </header>
+
+        <nav class="date-rail" id="dateRail" aria-label="Fixture dates"></nav>
+
+        <div class="fixtures-list is-loading" id="fixturesList" aria-live="polite">
+          <article class="fixture-card skeleton-card"></article>
+          <article class="fixture-card skeleton-card"></article>
+          <article class="fixture-card skeleton-card"></article>
+        </div>
+      </section>
+
+      <p class="research-note">
+        Trends are descriptive, not guarantees. Use the displayed line, price, sample,
+        squad news, and your own staking rules before placing a bet.
+      </p>
+    </main>
+
+    <div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+    <aside
+      class="match-drawer"
+      id="matchDrawer"
+      aria-labelledby="drawerTitle"
+      aria-modal="true"
+      role="dialog"
+      hidden
+    >
+      <div class="drawer-panel">
+        <header class="drawer-header">
+          <div>
+            <p class="eyebrow">Match research</p>
+            <h2 id="drawerTitle">Match detail</h2>
+          </div>
+          <button class="drawer-close" id="drawerClose" type="button" aria-label="Close match details">
+            Close
+          </button>
+        </header>
+        <div class="drawer-body" id="drawerBody"></div>
+      </div>
+    </aside>
+
+    <script src="./app.js?v=5" defer></script>
+  </body>
+</html>
