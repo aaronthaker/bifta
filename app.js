@@ -5,6 +5,22 @@ const PINNACLE_API_KEY = "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
 const SPORTSDB_ROOT = "https://www.thesportsdb.com/api/v1/json/3";
 const FORM_LOOKBACK_DAYS = 420;
 const FORM_SAMPLE_SIZE = 5;
+const PLAYER_STAT_COLUMNS = [
+  { name: "subIns", label: "SUB", title: "Substitute appearances" },
+  { name: "totalGoals", label: "G", title: "Goals" },
+  { name: "goalAssists", label: "A", title: "Assists" },
+  { name: "totalShots", label: "SH", title: "Shots" },
+  { name: "shotsOnTarget", label: "SOT", title: "Shots on target" },
+  { name: "offsides", label: "OFF", title: "Offsides" },
+  { name: "foulsCommitted", label: "FC", title: "Fouls committed" },
+  { name: "foulsSuffered", label: "FS", title: "Fouls suffered" },
+  { name: "yellowCards", label: "YC", title: "Yellow cards" },
+  { name: "redCards", label: "RC", title: "Red cards" },
+  { name: "ownGoals", label: "OG", title: "Own goals" },
+  { name: "saves", label: "SV", title: "Saves" },
+  { name: "shotsFaced", label: "SHF", title: "Shots faced" },
+  { name: "goalsConceded", label: "GA", title: "Goals conceded" },
+];
 
 const LEAGUES = [
   { slug: "fifa.world", name: "FIFA World Cup", category: "Global" },
@@ -25,6 +41,7 @@ const state = {
   marketCache: new Map(),
   formCache: new Map(),
   summaryCache: new Map(),
+  squadCache: new Map(),
   sportsDbTeamCache: new Map(),
   sportsDbEventsCache: new Map(),
   recentResultsPromise: null,
@@ -232,6 +249,7 @@ async function loadFixtures() {
   closeMatchDetails();
   state.marketCache.clear();
   state.formCache.clear();
+  state.squadCache.clear();
   clearMessage();
 
   const { apiRange } = getDateWindow(state.rangeDays);
@@ -345,10 +363,26 @@ async function fetchTeamFormForMatch(match) {
 }
 
 async function fetchDetailedTeamFormForMatch(match) {
-  const matchSummary = await fetchEspnSummary(match.id);
+  const [matchSummary, fetchedHomeSquad, fetchedAwaySquad] = await Promise.all([
+    fetchEspnSummary(match.id),
+    fetchWorldCupSquad(match.home),
+    fetchWorldCupSquad(match.away),
+  ]);
   const formEntries = matchSummary.boxscore?.form || [];
   const homeEntry = findFormEntry(formEntries, match.home);
   const awayEntry = findFormEntry(formEntries, match.away);
+  const homeSquad =
+    fetchedHomeSquad.length
+      ? fetchedHomeSquad
+      : normalizeWorldCupSquad(
+          findSummaryRoster(matchSummary.rosters, match.home.id, match.home.name)?.roster,
+        );
+  const awaySquad =
+    fetchedAwaySquad.length
+      ? fetchedAwaySquad
+      : normalizeWorldCupSquad(
+          findSummaryRoster(matchSummary.rosters, match.away.id, match.away.name)?.roster,
+        );
 
   if (!homeEntry || !awayEntry) {
     throw new Error("ESPN did not return both teams' recent form.");
@@ -378,8 +412,8 @@ async function fetchDetailedTeamFormForMatch(match) {
     source: "ESPN match summaries",
     detailedGamesLoaded: summaryByEvent.size,
     detailedGamesRequested: eventIds.length,
-    home: buildTeamFormFromGames(match.home, homeGames),
-    away: buildTeamFormFromGames(match.away, awayGames),
+    home: buildTeamFormFromGames(match.home, homeGames, homeSquad),
+    away: buildTeamFormFromGames(match.away, awayGames, awaySquad),
   };
 }
 
@@ -420,6 +454,33 @@ async function fetchEspnSummary(eventId) {
   });
 
   state.summaryCache.set(cacheKey, promise);
+  return promise;
+}
+
+async function fetchWorldCupSquad(team) {
+  if (!team.id) {
+    return [];
+  }
+
+  const cacheKey = String(team.id);
+  if (state.squadCache.has(cacheKey)) {
+    return state.squadCache.get(cacheKey);
+  }
+
+  const promise = fetch(
+    `${API_ROOT}/fifa.world/teams/${encodeURIComponent(cacheKey)}/roster`,
+    { headers: { Accept: "application/json" } },
+  )
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`ESPN squad returned ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((payload) => normalizeWorldCupSquad(payload.athletes))
+    .catch(() => []);
+
+  state.squadCache.set(cacheKey, promise);
   return promise;
 }
 
@@ -523,17 +584,72 @@ function formatSummaryStatDisplay(stat) {
 
 function normalizeSummaryPlayers(roster) {
   return (roster || [])
-    .filter((player) => player.active || player.stats?.some((stat) => Number(stat.value) > 0))
+    .filter((player) => {
+      const appearances = (player.stats || []).find((stat) => stat.name === "appearances");
+      return Number(appearances?.value) > 0 || player.starter || player.subbedIn || player.subbedOut;
+    })
     .map((player) => ({
       id: player.athlete?.id || "",
       name: player.athlete?.displayName || "Player",
       shortName: player.athlete?.shortName || player.athlete?.displayName || "Player",
       starter: Boolean(player.starter),
       position: player.position?.abbreviation || "",
+      positionName: player.position?.displayName || "",
       stats: Object.fromEntries(
         (player.stats || []).map((stat) => [stat.name, Number.isFinite(Number(stat.value)) ? Number(stat.value) : 0]),
       ),
     }));
+}
+
+function normalizeWorldCupSquad(roster) {
+  const players = new Map();
+
+  for (const player of roster || []) {
+    const athlete = player.athlete || player;
+    const position = player.position || athlete.position;
+    const id = athlete.id || "";
+    const name = athlete.displayName || athlete.fullName || "";
+    if (!name) {
+      continue;
+    }
+
+    const key = id || normalizeTeamName(name);
+    if (!players.has(key)) {
+      players.set(key, {
+        id,
+        name,
+        shortName: athlete.shortName || name,
+        jersey: player.jersey || athlete.jersey || "",
+        position: position?.abbreviation === "SUB" ? "" : position?.abbreviation || "",
+        positionName:
+          position?.displayName === "Substitute" ? "" : position?.displayName || position?.name || "",
+      });
+    }
+  }
+
+  return Array.from(players.values()).sort(
+    (a, b) =>
+      squadPositionRank(a.position) - squadPositionRank(b.position) ||
+      Number(a.jersey || 999) - Number(b.jersey || 999) ||
+      a.name.localeCompare(b.name),
+  );
+}
+
+function squadPositionRank(position) {
+  const value = String(position || "").toUpperCase();
+  if (value === "G" || value === "GK") {
+    return 0;
+  }
+  if (value.includes("B") || value.includes("D")) {
+    return 1;
+  }
+  if (value.includes("M")) {
+    return 2;
+  }
+  if (value.includes("F") || value.includes("W")) {
+    return 3;
+  }
+  return 4;
 }
 
 function normalizeSummaryScorers(events, teamId) {
@@ -632,9 +748,13 @@ function collectTeamGamesFromResults(team, results, beforeTimestamp) {
     .slice(0, FORM_SAMPLE_SIZE);
 }
 
-function buildTeamFormFromGames(team, games) {
+function buildTeamFormFromGames(team, games, squad = []) {
   if (!games.length) {
-    return emptyTeamForm(team);
+    return {
+      ...emptyTeamForm(team),
+      squadSize: squad.length,
+      playerTrends: summarizePlayerTrends(games, squad),
+    };
   }
 
   const totals = games.reduce(
@@ -679,7 +799,8 @@ function buildTeamFormFromGames(team, games) {
     sources: Array.from(new Set(games.map((game) => game.source).filter(Boolean))),
     fullStatGames: games.filter((game) => game.hasFullStats).length,
     statSummary: summarizeTeamStats(games),
-    playerTrends: summarizePlayerTrends(games),
+    squadSize: squad.length,
+    playerTrends: summarizePlayerTrends(games, squad),
   };
 }
 
@@ -707,6 +828,7 @@ function emptyTeamForm(team) {
     sources: [],
     fullStatGames: 0,
     statSummary: {},
+    squadSize: 0,
     playerTrends: [],
   };
 }
@@ -741,28 +863,60 @@ function summarizeTeamStats(games) {
   );
 }
 
-function summarizePlayerTrends(games) {
+function summarizePlayerTrends(games, squad = []) {
   const players = new Map();
+
+  for (const player of squad) {
+    const key = player.id || normalizeTeamName(player.name);
+    players.set(key, {
+      ...player,
+      squadMember: true,
+      appearances: 0,
+      starts: 0,
+      totals: {},
+      hits: {},
+      recentGames: [],
+    });
+  }
 
   for (const game of games) {
     for (const player of game.players || []) {
       const key = player.id || normalizeTeamName(player.name);
-      if (!players.has(key)) {
-        players.set(key, {
+      let aggregate = players.get(key);
+      if (!aggregate) {
+        aggregate = Array.from(players.values()).find(
+          (item) => normalizeTeamName(item.name) === normalizeTeamName(player.name),
+        );
+      }
+
+      if (!aggregate && squad.length) {
+        continue;
+      }
+
+      if (!aggregate) {
+        aggregate = {
           id: player.id,
           name: player.name,
           shortName: player.shortName,
+          jersey: "",
           position: player.position,
+          positionName: player.positionName,
+          squadMember: false,
           appearances: 0,
           starts: 0,
           totals: {},
           hits: {},
-        });
+          recentGames: [],
+        };
+        players.set(key, aggregate);
       }
 
-      const aggregate = players.get(key);
       aggregate.appearances += 1;
       aggregate.starts += player.starter ? 1 : 0;
+      if ((!aggregate.position || aggregate.position === "SUB") && player.position !== "SUB") {
+        aggregate.position = player.position;
+        aggregate.positionName = player.positionName;
+      }
 
       for (const [statName, value] of Object.entries(player.stats || {})) {
         aggregate.totals[statName] = (aggregate.totals[statName] || 0) + value;
@@ -771,10 +925,28 @@ function summarizePlayerTrends(games) {
     }
   }
 
+  for (const player of players.values()) {
+    player.recentGames = games.map((game) => {
+      const appearance = (game.players || []).find(
+        (item) =>
+          (player.id && item.id && String(player.id) === String(item.id)) ||
+          normalizeTeamName(item.name) === normalizeTeamName(player.name),
+      );
+      return {
+        matchId: game.matchId,
+        date: game.date,
+        opponent: game.opponent,
+        played: Boolean(appearance),
+        starter: Boolean(appearance?.starter),
+        stats: appearance?.stats || {},
+      };
+    });
+  }
+
   return Array.from(players.values()).sort(
     (a, b) =>
-      b.appearances - a.appearances ||
-      (b.hits.shotsOnTarget || 0) - (a.hits.shotsOnTarget || 0) ||
+      squadPositionRank(a.position) - squadPositionRank(b.position) ||
+      Number(a.jersey || 999) - Number(b.jersey || 999) ||
       a.name.localeCompare(b.name),
   );
 }
@@ -1506,34 +1678,196 @@ function renderDrawerLoading(match) {
   `;
 }
 
+function renderResearchSection({
+  className = "",
+  ariaLabel,
+  eyebrow,
+  title,
+  note = "",
+  content,
+  open = false,
+}) {
+  const testId = className.split(" ").find(Boolean) || normalizeTeamName(title);
+  return `
+    <details
+      class="research-section ${escapeAttribute(className)}"
+      aria-label="${escapeAttribute(ariaLabel)}"
+      data-testid="section-${escapeAttribute(testId)}"
+      ${open ? "open" : ""}
+    >
+      <summary class="research-section-summary">
+        <span class="research-section-heading">
+          <span class="eyebrow">${escapeHtml(eyebrow)}</span>
+          <strong>${escapeHtml(title)}</strong>
+        </span>
+        ${note ? `<span class="research-section-note">${escapeHtml(note)}</span>` : ""}
+      </summary>
+      <div class="research-section-body">
+        ${content}
+      </div>
+    </details>
+  `;
+}
+
 function renderDrawerEmpty(match, message, form = null) {
   const playerProps = form ? buildPlayerTrendProps(match, form).slice(0, 4) : [];
   elements.drawerTitle.textContent = `${match.home.shortName} vs ${match.away.shortName}`;
   elements.drawerBody.innerHTML = `
     ${renderDrawerMatchHeader(match)}
-    <div class="prop-empty">
-      <h3>Market prices unavailable</h3>
-      <p>${escapeHtml(message)}</p>
-    </div>
+    ${renderResearchSection({
+      className: "market-status-section",
+      ariaLabel: "Market availability",
+      eyebrow: "Pinnacle 1X2",
+      title: "Prices unavailable",
+      note: "Market status",
+      open: true,
+      content: `
+        <div class="prop-empty">
+          <h3>Market prices unavailable</h3>
+          <p>${escapeHtml(message)}</p>
+        </div>
+      `,
+    })}
     ${
       playerProps.length
-        ? `
-          <section class="prop-section" aria-label="Player prop watchlist">
-            <div class="drawer-section-title">
-              <div>
-                <p class="eyebrow">Player watchlist</p>
-                <h3>Trends worth pricing</h3>
-              </div>
-              <p class="section-note">These trends are not matched to a live player-prop price.</p>
-            </div>
-            <div class="prop-list">${playerProps.map(renderPropCard).join("")}</div>
-          </section>
-        `
+        ? renderResearchSection({
+            className: "prop-section",
+            ariaLabel: "Player prop watchlist",
+            eyebrow: "Player watchlist",
+            title: "Trends worth pricing",
+            note: "These trends are not matched to a live player-prop price.",
+            content: `<div class="prop-list">${playerProps.map(renderPropCard).join("")}</div>`,
+          })
         : ""
     }
     ${form ? renderFormSummary(form) : ""}
     ${form ? renderDetailedGames(form) : ""}
+    ${form ? renderSquadStats(form) : ""}
   `;
+}
+
+function renderFairOddsBoard(match, markets, summary, form, loadedAt) {
+  const pricing = buildFairMoneyline(match, markets);
+  if (!pricing.rows.length) {
+    return "";
+  }
+
+  return renderResearchSection({
+    className: "fair-odds-section",
+    ariaLabel: "Pinnacle fair 1X2 probabilities",
+    eyebrow: "Pinnacle 1X2",
+    title: "Price and fair probability",
+    note: `${formatProbability(pricing.overround)} market margin removed`,
+    open: true,
+    content: `
+      <div class="fair-odds-wrap">
+        <table class="fair-odds-table">
+          <thead>
+            <tr>
+              <th scope="col">Outcome</th>
+              <th scope="col">Pinnacle odds</th>
+              <th scope="col">True probability</th>
+              <th scope="col">Odds to beat</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pricing.rows
+              .map(
+                (row) => `
+                  <tr>
+                    <th scope="row">
+                      <span>${escapeHtml(row.label)}</span>
+                      <small>${escapeHtml(row.context)}</small>
+                    </th>
+                    <td data-label="Pinnacle">
+                      <strong>${formatDecimalOdds(row.price)}</strong>
+                      <small>${escapeHtml(formatAmericanOdds(row.price))}</small>
+                    </td>
+                    <td data-label="True probability"><strong>${formatProbability(row.fairProbability)}</strong></td>
+                    <td data-label="Odds to beat">
+                      <strong>&gt; ${row.fairDecimal.toFixed(2)}</strong>
+                      <small>Decimal</small>
+                    </td>
+                  </tr>
+                `,
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="fair-odds-footer">
+        <p>True probability is Pinnacle's three-way implied probability normalized to 100%. “Odds to beat” is its inverse; a higher available price is required for a positive theoretical edge.</p>
+        <p class="research-metadata">
+          <span>${summary.openMarkets} open lines</span>
+          <span>${form.home.played + form.away.played} recent team-games</span>
+          <span>Checked ${escapeHtml(timeFormatter.format(loadedAt))}</span>
+        </p>
+      </div>
+    `,
+  });
+}
+
+function buildFairMoneyline(match, markets) {
+  const market = (markets || []).find(
+    (item) =>
+      item.type === "moneyline" &&
+      item.period === 0 &&
+      item.status === "open" &&
+      !item.isAlternate,
+  );
+  const labels = {
+    home: { label: match.home.name, context: "Home win" },
+    draw: { label: "Draw", context: "Full time" },
+    away: { label: match.away.name, context: "Away win" },
+  };
+  const marketPrices = (market?.prices || [])
+    .filter(
+      (price) =>
+        labels[price.designation] &&
+        Number.isFinite(price.price) &&
+        americanToProbability(price.price) > 0,
+    )
+    .map((price) => ({
+      designation: price.designation,
+      price: price.price,
+      impliedProbability: americanToProbability(price.price),
+    }));
+  const fallbackPrices =
+    marketPrices.length === 3 || !match.odds
+      ? marketPrices
+      : ["home", "draw", "away"]
+          .filter((designation) => Number.isFinite(match.odds[designation]))
+          .map((designation) => ({
+            designation,
+            price: match.odds[designation],
+            impliedProbability: americanToProbability(match.odds[designation]),
+          }));
+  const totalProbability = fallbackPrices.reduce(
+    (total, price) => total + price.impliedProbability,
+    0,
+  );
+
+  if (fallbackPrices.length !== 3 || !totalProbability) {
+    return { rows: [], overround: 0 };
+  }
+
+  return {
+    overround: Math.max(0, totalProbability - 1),
+    rows: ["home", "draw", "away"].map((designation) => {
+      const price = fallbackPrices.find((item) => item.designation === designation);
+      const fairProbability = price.impliedProbability / totalProbability;
+      return {
+        ...labels[designation],
+        ...price,
+        fairProbability,
+        fairDecimal: 1 / fairProbability,
+      };
+    }),
+  };
+}
+
+function formatProbability(value) {
+  return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "-";
 }
 
 function renderDrawerContent(match, payload, props, form) {
@@ -1541,36 +1875,20 @@ function renderDrawerContent(match, payload, props, form) {
   elements.drawerTitle.textContent = `${match.home.shortName} vs ${match.away.shortName}`;
   elements.drawerBody.innerHTML = `
     ${renderDrawerMatchHeader(match)}
-    <section class="board-summary" aria-label="Market summary">
-      <div>
-        <span>Market coverage</span>
-        <strong>${summary.openMarkets} open lines</strong>
-      </div>
-      <div>
-        <span>Recent data</span>
-        <strong>${form.home.played + form.away.played} team-games</strong>
-      </div>
-      <div>
-        <span>Last checked</span>
-        <strong>${escapeHtml(timeFormatter.format(payload.loadedAt))}</strong>
-      </div>
-    </section>
-    <section class="prop-section" aria-label="Potential prop bets">
-      <div class="drawer-section-title">
-        <div>
-          <p class="eyebrow">Prop shortlist</p>
-          <h3>Evidence before opinion</h3>
-        </div>
-        <p class="section-note">A trend only becomes a bet when the available price clears the stated value gate.</p>
-      </div>
-      ${
-        props.length
-          ? `<div class="prop-list">${props.map(renderPropCard).join("")}</div>`
-          : `<div class="prop-empty"><h3>No clean angle</h3><p>The available line and five-match evidence do not align strongly enough. Passing is a valid decision.</p></div>`
-      }
-    </section>
+    ${renderFairOddsBoard(match, payload.markets, summary, form, payload.loadedAt)}
+    ${renderResearchSection({
+      className: "prop-section",
+      ariaLabel: "Potential prop bets",
+      eyebrow: "Prop shortlist",
+      title: "Evidence before opinion",
+      note: "A trend only becomes a bet when the available price clears the stated value gate.",
+      content: props.length
+        ? `<div class="prop-list">${props.map(renderPropCard).join("")}</div>`
+        : `<div class="prop-empty"><h3>No clean angle</h3><p>The available line and five-match evidence do not align strongly enough. Passing is a valid decision.</p></div>`,
+    })}
     ${renderFormSummary(form)}
     ${renderDetailedGames(form)}
+    ${renderSquadStats(form)}
     ${renderPrimaryBoard(match, payload.markets)}
   `;
 }
@@ -1579,8 +1897,14 @@ function renderDrawerMatchHeader(match) {
   const venue = [match.venueName, match.venuePlace].filter(Boolean).join(" - ") || "Venue TBA";
   const broadcast = match.broadcasts.length ? match.broadcasts.join(", ") : "Broadcast TBA";
 
-  return `
-    <section class="drawer-match-card">
+  return renderResearchSection({
+    className: "match-overview-section",
+    ariaLabel: "Match overview",
+    eyebrow: "Fixture",
+    title: "Match overview",
+    note: `${dateFormatter.format(match.date)} · ${timeFormatter.format(match.date)}`,
+    content: `
+      <div class="drawer-match-card">
       <div class="drawer-kickoff">
         <span>${escapeHtml(dateFormatter.format(match.date))}</span>
         <strong>${escapeHtml(timeFormatter.format(match.date))}</strong>
@@ -1599,8 +1923,9 @@ function renderDrawerMatchHeader(match) {
           ? `<a class="drawer-link" href="${escapeAttribute(match.eventLink)}" target="_blank" rel="noreferrer">Match center</a>`
           : ""
       }
-    </section>
-  `;
+      </div>
+    `,
+  });
 }
 
 function renderDrawerTeam(team, label) {
@@ -1620,22 +1945,20 @@ function renderFormSummary(form) {
     return "";
   }
 
-  return `
-    <section aria-label="Recent team form">
-      <div class="drawer-section-title">
-        <div>
-          <p class="eyebrow">Last five internationals</p>
-          <h3>Form at a glance</h3>
-        </div>
-        <p class="section-note">${escapeHtml(form.source || formSourceLabel(form.home, form.away))}</p>
-      </div>
+  return renderResearchSection({
+    className: "form-section",
+    ariaLabel: "Recent team form",
+    eyebrow: "Last five internationals",
+    title: "Form at a glance",
+    note: form.source || formSourceLabel(form.home, form.away),
+    content: `
       <div class="form-summary">
         ${renderTeamFormCard(form.home)}
         ${renderTeamFormCard(form.away)}
         ${form.error ? `<p class="form-error">${escapeHtml(form.error)}</p>` : ""}
       </div>
-    </section>
-  `;
+    `,
+  });
 }
 
 function renderTeamFormCard(form) {
@@ -1706,21 +2029,19 @@ function renderDetailedGames(form) {
     return "";
   }
 
-  return `
-    <section class="recent-games-section" aria-label="Full last five match statistics">
-      <div class="drawer-section-title">
-        <div>
-          <p class="eyebrow">Source matches</p>
-          <h3>Every available stat</h3>
-        </div>
-        <p class="section-note">Open a match to inspect the complete ESPN team stat sheet and recorded player lines.</p>
-      </div>
+  return renderResearchSection({
+    className: "recent-games-section",
+    ariaLabel: "Full last five match statistics",
+    eyebrow: "Source matches",
+    title: "Every available stat",
+    note: "Open a match to inspect the complete ESPN team stat sheet and recorded player lines.",
+    content: `
       <div class="games-grid">
         ${renderTeamGames(form.home)}
         ${renderTeamGames(form.away)}
       </div>
-    </section>
-  `;
+    `,
+  });
 }
 
 function renderTeamGames(form) {
@@ -1846,6 +2167,132 @@ function formatPlayerLine(player) {
   return [player.starter ? "Started" : "Sub", ...line].join(" · ");
 }
 
+function renderSquadStats(form) {
+  const teams = [form?.home, form?.away].filter((teamForm) => teamForm?.playerTrends?.length);
+  if (!teams.length) {
+    return "";
+  }
+
+  return renderResearchSection({
+    className: "squad-section",
+    ariaLabel: "World Cup squad player statistics",
+    eyebrow: "World Cup squads",
+    title: "Player stats: last five",
+    note: "Totals cover the five source matches above. A dash in the form strip means the player did not appear.",
+    content: `
+      <div class="squad-panels">
+        ${teams.map(renderSquadTeamTable).join("")}
+      </div>
+    `,
+  });
+}
+
+function renderSquadTeamTable(form) {
+  const squadCount = form.squadSize || form.playerTrends.length;
+  const coverageLabel = form.squadSize ? "World Cup squad" : "Recent participants";
+
+  return `
+    <details class="squad-team" data-testid="squad-${escapeAttribute(form.team.id || form.team.name)}">
+      <summary>
+        <span>
+          <strong>${escapeHtml(form.team.name)}</strong>
+          <small>${squadCount} players · ${escapeHtml(coverageLabel)}</small>
+        </span>
+      </summary>
+      <div class="squad-table-wrap">
+        <table class="squad-table">
+          <thead>
+            <tr>
+              <th scope="col">Player</th>
+              <th scope="col">Pos</th>
+              <th scope="col">Last five</th>
+              <th scope="col" title="Appearances">APP</th>
+              <th scope="col" title="Starts">ST</th>
+              ${PLAYER_STAT_COLUMNS.map(
+                (column) => `<th scope="col" title="${escapeAttribute(column.title)}">${escapeHtml(column.label)}</th>`,
+              ).join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${form.playerTrends.map(renderSquadPlayerRow).join("")}
+          </tbody>
+        </table>
+      </div>
+      <p class="squad-legend">
+        APP appearances · ST starts · SUB substitute appearances · G goals · A assists · SH shots ·
+        SOT shots on target · OFF offsides · FC/FS fouls committed/suffered · SV saves · SHF shots faced
+      </p>
+    </details>
+  `;
+}
+
+function renderSquadPlayerRow(player) {
+  return `
+    <tr class="${player.appearances ? "" : "has-no-appearances"}">
+      <th scope="row">
+        <span class="squad-player">
+          <span class="squad-number">${escapeHtml(player.jersey || "–")}</span>
+          <span>
+            <strong>${escapeHtml(player.name)}</strong>
+            <small>${escapeHtml(player.positionName || "Squad player")}</small>
+          </span>
+        </span>
+      </th>
+      <td>${escapeHtml(player.position || "–")}</td>
+      <td>${renderPlayerAppearanceStrip(player)}</td>
+      <td>${player.appearances}</td>
+      <td>${player.starts}</td>
+      ${PLAYER_STAT_COLUMNS.map(
+        (column) => `<td>${formatPlayerTotal(player.totals?.[column.name])}</td>`,
+      ).join("")}
+    </tr>
+  `;
+}
+
+function renderPlayerAppearanceStrip(player) {
+  return `
+    <span class="appearance-strip" aria-label="${escapeAttribute(
+      `${player.name}: ${player.appearances} appearances in the last five matches`,
+    )}">
+      ${(player.recentGames || [])
+        .map((game) => {
+          const status = game.played ? (game.starter ? "S" : "B") : "–";
+          const className = game.played ? (game.starter ? "is-start" : "is-bench") : "is-dnp";
+          const detail = game.played ? formatRecentPlayerGame(game) : "Did not appear";
+          return `
+            <span
+              class="appearance-dot ${className}"
+              title="${escapeAttribute(
+                `${dateFormatter.format(game.date)} vs ${game.opponent.name}: ${detail}`,
+              )}"
+            >${status}</span>
+          `;
+        })
+        .join("")}
+    </span>
+  `;
+}
+
+function formatRecentPlayerGame(game) {
+  const labels = {
+    totalGoals: "G",
+    goalAssists: "A",
+    totalShots: "SH",
+    shotsOnTarget: "SOT",
+    foulsCommitted: "FC",
+    yellowCards: "YC",
+    saves: "SV",
+  };
+  const stats = Object.entries(labels)
+    .filter(([name]) => Number(game.stats?.[name]) > 0)
+    .map(([name, label]) => `${game.stats[name]} ${label}`);
+  return [game.starter ? "Started" : "Sub", ...stats].join(" · ");
+}
+
+function formatPlayerTotal(value) {
+  return Number.isFinite(Number(value)) ? String(Number(value)) : "0";
+}
+
 function renderResultChip(game) {
   return `
     <span class="result-chip is-${game.outcome.toLowerCase()}" title="${escapeAttribute(
@@ -1898,14 +2345,13 @@ function renderPrimaryBoard(match, markets) {
     return "";
   }
 
-  return `
-    <section class="market-board" aria-label="Primary market board">
-      <div class="drawer-section-title">
-        <div>
-          <p class="eyebrow">Pinnacle board</p>
-          <h3>Primary lines</h3>
-        </div>
-      </div>
+  return renderResearchSection({
+    className: "market-board",
+    ariaLabel: "Primary market board",
+    eyebrow: "Pinnacle board",
+    title: "Primary lines",
+    note: "Main totals, handicap, and team-total prices.",
+    content: `
       <div class="market-board-grid">
         ${primary
           .map(
@@ -1919,8 +2365,8 @@ function renderPrimaryBoard(match, markets) {
           )
           .join("")}
       </div>
-    </section>
-  `;
+    `,
+  });
 }
 
 function buildPrimaryBoardItem(match, markets, type, period, side = "") {

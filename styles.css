@@ -713,11 +713,88 @@ select:focus {
 .drawer-body {
   display: grid;
   align-content: start;
-  gap: 30px;
+  grid-auto-rows: max-content;
+  gap: 12px;
   min-height: 0;
   padding: 26px;
   overflow: auto;
   scrollbar-width: thin;
+}
+
+.research-section {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.research-section-summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 72px;
+  padding: 14px 16px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.research-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.research-section-summary::after {
+  content: "+";
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line-dark);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.research-section[open] > .research-section-summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.research-section[open] > .research-section-summary::after {
+  content: "−";
+}
+
+.research-section-heading {
+  min-width: 0;
+}
+
+.research-section-heading .eyebrow,
+.research-section-heading strong {
+  display: block;
+}
+
+.research-section-heading .eyebrow {
+  margin-bottom: 4px;
+}
+
+.research-section-heading strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.2rem;
+  font-weight: 500;
+  line-height: 1.15;
+}
+
+.research-section-note {
+  max-width: 390px;
+  margin-left: auto;
+  color: var(--ink-faint);
+  font-size: 0.68rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.research-section-body {
+  padding: 18px;
 }
 
 .drawer-match-card {
@@ -725,8 +802,6 @@ select:focus {
   grid-template-columns: 150px minmax(0, 1fr) minmax(200px, auto);
   gap: 24px;
   align-items: center;
-  padding-bottom: 26px;
-  border-bottom: 1px solid var(--line-dark);
 }
 
 .drawer-kickoff span,
@@ -793,22 +868,6 @@ select:focus {
   font-weight: 800;
 }
 
-.board-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-
-.board-summary div {
-  padding: 13px 16px;
-}
-
-.board-summary div + div {
-  border-left: 1px solid var(--line);
-}
-
-.board-summary span,
 .market-mini span,
 .prop-topline span,
 .trend-label {
@@ -820,38 +879,114 @@ select:focus {
   text-transform: uppercase;
 }
 
-.board-summary strong {
+.fair-odds-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  scrollbar-width: thin;
+}
+
+.fair-odds-table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
+}
+
+.fair-odds-table th,
+.fair-odds-table td {
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+}
+
+.fair-odds-table tr:last-child th,
+.fair-odds-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.fair-odds-table th:first-child {
+  text-align: left;
+}
+
+.fair-odds-table thead th {
+  color: var(--ink-faint);
+  background: var(--surface-muted);
+  font-size: 0.61rem;
+  font-weight: 850;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.fair-odds-table tbody th {
+  width: 34%;
+}
+
+.fair-odds-table tbody th span,
+.fair-odds-table tbody th small,
+.fair-odds-table tbody td strong,
+.fair-odds-table tbody td small {
   display: block;
-  margin-top: 4px;
-  font-size: 0.9rem;
 }
 
-.drawer-section-title {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
-.drawer-section-title .eyebrow {
-  margin-bottom: 5px;
-}
-
-.drawer-section-title h3 {
-  margin-bottom: 0;
+.fair-odds-table tbody th span {
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 1.45rem;
+  font-size: 1rem;
   font-weight: 500;
 }
 
+.fair-odds-table tbody th small,
+.fair-odds-table tbody td small {
+  margin-top: 3px;
+  color: var(--ink-faint);
+  font-size: 0.61rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.fair-odds-table tbody td strong {
+  font-size: 0.92rem;
+}
+
+.fair-odds-table tbody td:nth-child(3) strong,
+.fair-odds-table tbody td:nth-child(4) strong {
+  color: var(--green);
+}
+
+.fair-odds-footer {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 10px;
+}
+
+.fair-odds-footer > p {
+  max-width: 530px;
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.63rem;
+  line-height: 1.5;
+}
+
+.research-metadata {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  text-align: right;
+}
+
+.research-metadata span {
+  white-space: nowrap;
+}
+
 .section-note {
-  max-width: 380px;
   margin: 0;
   color: var(--ink-faint);
   font-size: 0.7rem;
   line-height: 1.45;
-  text-align: right;
 }
 
 .prop-list {
@@ -1178,6 +1313,240 @@ select:focus {
   color: var(--ink);
 }
 
+.squad-panels {
+  display: grid;
+  gap: 10px;
+}
+
+.squad-team {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.squad-team > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 16px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.squad-team > summary::-webkit-details-marker {
+  display: none;
+}
+
+.squad-team > summary::after {
+  content: "+";
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line-dark);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.squad-team[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+
+.squad-team[open] > summary::after {
+  content: "−";
+}
+
+.squad-team > summary strong,
+.squad-team > summary small {
+  display: block;
+}
+
+.squad-team > summary strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.squad-team > summary small {
+  margin-top: 3px;
+  color: var(--ink-faint);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.squad-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.squad-table {
+  width: 100%;
+  min-width: 1330px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.68rem;
+}
+
+.squad-table th,
+.squad-table td {
+  min-width: 46px;
+  padding: 9px 8px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.squad-table tr:last-child th,
+.squad-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.squad-table th:last-child,
+.squad-table td:last-child {
+  border-right: 0;
+}
+
+.squad-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  color: var(--ink-faint);
+  background: var(--surface-muted);
+  font-size: 0.58rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.squad-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 224px;
+  max-width: 224px;
+  background: var(--surface);
+  text-align: left;
+}
+
+.squad-table thead th:first-child {
+  z-index: 3;
+  background: var(--surface-muted);
+}
+
+.squad-table th:nth-child(2),
+.squad-table td:nth-child(2) {
+  min-width: 58px;
+}
+
+.squad-table th:nth-child(3),
+.squad-table td:nth-child(3) {
+  min-width: 138px;
+}
+
+.squad-table tbody tr:hover th,
+.squad-table tbody tr:hover td {
+  background: #faf9f4;
+}
+
+.squad-table tbody tr:hover th:first-child {
+  background: #faf9f4;
+}
+
+.squad-table tr.has-no-appearances {
+  color: var(--ink-faint);
+}
+
+.squad-player {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+}
+
+.squad-player > span:last-child {
+  min-width: 0;
+}
+
+.squad-player strong,
+.squad-player small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.squad-player strong {
+  color: var(--ink);
+  font-size: 0.72rem;
+}
+
+.squad-player small {
+  margin-top: 2px;
+  color: var(--ink-faint);
+  font-size: 0.58rem;
+  font-weight: 700;
+}
+
+.squad-number {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--ink-soft);
+  background: var(--paper);
+  font-size: 0.62rem;
+  font-weight: 850;
+}
+
+.appearance-strip {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.appearance-dot {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  font-size: 0.55rem;
+  font-weight: 850;
+}
+
+.appearance-dot.is-start {
+  color: var(--green);
+  background: var(--green-soft);
+}
+
+.appearance-dot.is-bench {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.appearance-dot.is-dnp {
+  color: var(--ink-faint);
+  background: var(--surface-muted);
+}
+
+.squad-legend {
+  margin: 0;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-faint);
+  font-size: 0.62rem;
+  line-height: 1.5;
+}
+
 .market-board-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1445,17 +1814,78 @@ select:focus {
     grid-column: auto;
   }
 
-  .board-summary {
-    grid-template-columns: 1fr;
+  .research-section-summary {
+    align-items: start;
+    gap: 12px;
   }
 
-  .board-summary div + div {
-    border-top: 1px solid var(--line);
-    border-left: 0;
+  .research-section-note {
+    display: none;
   }
 
-  .drawer-section-title {
+  .research-section-body {
+    padding: 14px;
+  }
+
+  .fair-odds-footer {
     display: grid;
+    gap: 8px;
+  }
+
+  .fair-odds-table {
+    display: block;
+    min-width: 0;
+  }
+
+  .fair-odds-table thead {
+    display: none;
+  }
+
+  .fair-odds-table tbody {
+    display: grid;
+  }
+
+  .fair-odds-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 12px;
+  }
+
+  .fair-odds-table tbody tr + tr {
+    border-top: 1px solid var(--line);
+  }
+
+  .fair-odds-table tbody th {
+    grid-column: 1 / -1;
+    width: auto;
+    padding: 0 0 10px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .fair-odds-table tbody td {
+    padding: 10px 6px 0 0;
+    border-bottom: 0;
+    text-align: left;
+  }
+
+  .fair-odds-table tbody td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 5px;
+    color: var(--ink-faint);
+    font-size: 0.51rem;
+    font-weight: 850;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .fair-odds-table tbody td strong {
+    font-size: 0.82rem;
+  }
+
+  .research-metadata {
+    justify-content: flex-start;
+    text-align: left;
   }
 
   .section-note {

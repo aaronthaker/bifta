@@ -19,6 +19,8 @@ Opening a fixture loads:
 - Pinnacle's available full-match, handicap, and team-total lines.
 - Each team's five most recent internationals from the ESPN match summary.
 - The complete ESPN team stat sheet for every available source match.
+- Every player in each team's current World Cup squad, with collapsible last-five
+  appearance and stat tables.
 - Recorded player lines including goals, shots, shots on target, fouls, cards,
   offsides, and saves.
 - A short prop list filtered for agreement between the market and recent form.
