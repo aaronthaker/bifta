@@ -12,60 +12,6 @@ python3 -m http.server 5173
 
 Open `http://localhost:5173`.
 
-## Shared Pinnacle odds history
-
-The GitHub Pages app can use a Cloudflare Worker for shared Pinnacle odds
-history across every visitor and device. The committed `config.js` expects this
-Worker for production so the Pinnacle key is not exposed in the browser.
-
-### 1. Create the Cloudflare Worker
-
-```sh
-cd worker
-cp wrangler.toml.example wrangler.toml
-npx wrangler login
-npx wrangler kv namespace create PINNACLE_ODDS_KV
-```
-
-Copy the `id` printed by the KV command into `worker/wrangler.toml`:
-
-```toml
-[[kv_namespaces]]
-binding = "PINNACLE_ODDS_KV"
-id = "PASTE_THE_PRINTED_ID_HERE"
-```
-
-Set the Pinnacle key as a Worker secret:
-
-```sh
-npx wrangler secret put PINNACLE_API_KEY
-```
-
-Paste the Pinnacle API key when Wrangler asks for it, then deploy:
-
-```sh
-npx wrangler deploy
-```
-
-Wrangler prints a Worker URL like:
-
-```text
-https://touchline-pinnacle.YOUR_SUBDOMAIN.workers.dev
-```
-
-### 2. Point the app at the Worker
-
-Edit `config.js`:
-
-```js
-window.TOUCHLINE_CONFIG = {
-  pinnacleWorkerUrl: "https://touchline-pinnacle.YOUR_SUBDOMAIN.workers.dev",
-};
-```
-
-Commit and push the app to GitHub Pages. Once deployed, every visitor will read
-the same shared movement log from Cloudflare KV.
-
 ## Match research
 
 Opening a fixture loads:

@@ -1,9 +1,7 @@
 const API_ROOT = "https://site.api.espn.com/apis/site/v2/sports/soccer";
 const PINNACLE_ROOT = "https://guest.api.arcadia.pinnacle.com/0.1";
 const PINNACLE_SOCCER_ID = 29;
-const APP_CONFIG = window.TOUCHLINE_CONFIG || {};
-const PINNACLE_WORKER_ROOT = normalizeConfigUrl(APP_CONFIG.pinnacleWorkerUrl);
-const PINNACLE_DIRECT_API_KEY = APP_CONFIG.pinnacleApiKey || "";
+const PINNACLE_API_KEY = "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
 const ODDS_SNAPSHOT_STORAGE_KEY = "touchline:pinnacleOddsSnapshot:v1";
 const ODDS_MOVEMENTS_STORAGE_KEY = "touchline:pinnacleOddsMovements:v1";
 const MAX_ODDS_MOVEMENTS = 80;
@@ -124,10 +122,6 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
-
-function normalizeConfigUrl(value) {
-  return String(value || "").trim().replace(/\/+$/, "");
-}
 
 function formatDateParam(date) {
   const year = date.getFullYear();
@@ -292,14 +286,11 @@ async function attachPinnacleOdds(matches) {
   try {
     state.oddsFailures = [];
     state.latestOddsChangeCount = 0;
-    const sharedBoard = PINNACLE_WORKER_ROOT ? await fetchSharedPinnacleBoard() : null;
-    const [pinnacleMatchups, pinnacleMarkets] = sharedBoard
-      ? [sharedBoard.matchups, sharedBoard.markets]
-      : await Promise.all([
-          fetchPinnacle(`/sports/${PINNACLE_SOCCER_ID}/matchups?withSpecials=false`),
-          fetchPinnacle(`/sports/${PINNACLE_SOCCER_ID}/markets/straight?primaryOnly=true&withSpecials=false`),
-        ]);
-    const oddsLoadedAt = sharedBoard?.loadedAt ? new Date(sharedBoard.loadedAt) : new Date();
+    const [pinnacleMatchups, pinnacleMarkets] = await Promise.all([
+      fetchPinnacle(`/sports/${PINNACLE_SOCCER_ID}/matchups?withSpecials=false`),
+      fetchPinnacle(`/sports/${PINNACLE_SOCCER_ID}/markets/straight?primaryOnly=true&withSpecials=false`),
+    ]);
+    const oddsLoadedAt = new Date();
 
     const marketByMatchupId = mapPinnacleMarkets(pinnacleMarkets);
     const candidates = normalizePinnacleMatchups(pinnacleMatchups).filter((matchup) =>
@@ -319,12 +310,7 @@ async function attachPinnacleOdds(matches) {
     }
 
     state.oddsCoverage = matchedCount;
-    if (sharedBoard) {
-      state.oddsMovements = normalizeSharedOddsMovements(sharedBoard.movements);
-      state.latestOddsChangeCount = Number(sharedBoard.latestChangeCount) || 0;
-    } else {
-      recordPinnacleOddsMovements(matches, oddsLoadedAt);
-    }
+    recordPinnacleOddsMovements(matches, oddsLoadedAt);
     setOddsLoading(false);
   } catch (error) {
     state.oddsCoverage = 0;
@@ -338,46 +324,11 @@ async function attachPinnacleOdds(matches) {
   }
 }
 
-async function fetchSharedPinnacleBoard() {
-  const payload = await fetchWorkerJson(`/board?sportId=${PINNACLE_SOCCER_ID}`);
-  return {
-    matchups: Array.isArray(payload.matchups) ? payload.matchups : [],
-    markets: Array.isArray(payload.markets) ? payload.markets : [],
-    movements: Array.isArray(payload.movements) ? payload.movements : [],
-    latestChangeCount: Number(payload.latestChangeCount) || 0,
-    loadedAt: payload.loadedAt || payload.comparisonAt || new Date().toISOString(),
-  };
-}
-
-async function fetchWorkerJson(path) {
-  if (!PINNACLE_WORKER_ROOT) {
-    throw new Error("The shared Pinnacle worker is not configured.");
-  }
-
-  const response = await fetch(`${PINNACLE_WORKER_ROOT}${path}`, {
-    headers: { Accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Shared Pinnacle worker returned ${response.status}`);
-  }
-
-  return response.json();
-}
-
 async function fetchPinnacle(path) {
-  if (PINNACLE_WORKER_ROOT) {
-    return fetchWorkerJson(`/pinnacle${path}`);
-  }
-
-  if (!PINNACLE_DIRECT_API_KEY) {
-    throw new Error("Pinnacle odds need a shared worker URL in config.js.");
-  }
-
   const response = await fetch(`${PINNACLE_ROOT}${path}`, {
     headers: {
       Accept: "application/json",
-      "X-API-Key": PINNACLE_DIRECT_API_KEY,
+      "X-API-Key": PINNACLE_API_KEY,
     },
   });
 
@@ -386,13 +337,6 @@ async function fetchPinnacle(path) {
   }
 
   return response.json();
-}
-
-function normalizeSharedOddsMovements(movements) {
-  return (movements || [])
-    .filter((movement) => movement?.detectedAt && Array.isArray(movement.changes))
-    .sort(compareOddsMovements)
-    .slice(0, MAX_ODDS_MOVEMENTS);
 }
 
 async function fetchPinnacleMarketsForMatch(match) {
