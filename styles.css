@@ -361,6 +361,84 @@ select:focus {
   display: none;
 }
 
+.odds-movement-panel {
+  margin-top: 16px;
+}
+
+.odds-movement-panel[hidden] {
+  display: none;
+}
+
+.odds-movement-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  min-height: 62px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--green);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--surface);
+  text-align: left;
+}
+
+.odds-movement-summary:not(:disabled):hover,
+.odds-movement-summary:not(:disabled):focus-visible {
+  border-color: var(--line-dark);
+  border-left-color: var(--ink);
+  outline: none;
+}
+
+.odds-movement-summary.is-empty {
+  border-left-color: var(--line-dark);
+  color: var(--ink-soft);
+  cursor: default;
+}
+
+.movement-kicker {
+  color: var(--green);
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.movement-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.movement-main strong,
+.movement-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.movement-main strong {
+  font-size: 0.86rem;
+}
+
+.movement-main span,
+.movement-peek {
+  color: var(--ink-faint);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.movement-peek {
+  justify-self: end;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .schedule-panel {
   padding-top: 32px;
 }
@@ -967,6 +1045,121 @@ select:focus {
   color: var(--ink-faint);
   font-size: 0.63rem;
   line-height: 1.5;
+}
+
+.movement-detail-list {
+  display: grid;
+  gap: 10px;
+}
+
+.movement-detail-card {
+  display: grid;
+  gap: 13px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.movement-detail-top {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.movement-detail-top div {
+  min-width: 0;
+}
+
+.movement-detail-top span,
+.movement-detail-top small,
+.movement-count {
+  color: var(--ink-faint);
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.movement-detail-top strong,
+.movement-detail-top small {
+  display: block;
+}
+
+.movement-detail-top strong {
+  margin: 4px 0 3px;
+  overflow: hidden;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.08rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.movement-count {
+  flex: 0 0 auto;
+  padding: 5px 7px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+}
+
+.movement-change-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.movement-change {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 12px auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line-dark);
+  border-radius: 7px;
+  background: #faf9f4;
+}
+
+.movement-change.is-shortened {
+  border-left-color: var(--green);
+}
+
+.movement-change.is-drifted {
+  border-left-color: var(--amber);
+}
+
+.movement-change > span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.movement-change strong,
+.movement-change small {
+  display: block;
+  text-align: right;
+}
+
+.movement-change strong {
+  font-size: 0.78rem;
+}
+
+.movement-change small {
+  margin-top: 1px;
+  color: var(--ink-faint);
+  font-size: 0.58rem;
+}
+
+.movement-change b {
+  color: var(--ink-faint);
+  font-size: 0.72rem;
+  text-align: center;
 }
 
 .research-metadata {
@@ -1676,6 +1869,16 @@ select:focus {
     grid-template-columns: 1fr 1fr;
   }
 
+  .odds-movement-summary {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .movement-peek {
+    justify-self: start;
+    max-width: 100%;
+  }
+
   .range-control {
     grid-column: 1 / -1;
   }
@@ -1886,6 +2089,20 @@ select:focus {
   .research-metadata {
     justify-content: flex-start;
     text-align: left;
+  }
+
+  .movement-detail-top,
+  .movement-change-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .movement-count {
+    width: fit-content;
+  }
+
+  .movement-change {
+    grid-template-columns: minmax(0, 1fr) auto 12px auto;
   }
 
   .section-note {

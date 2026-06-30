@@ -2,6 +2,10 @@ const API_ROOT = "https://site.api.espn.com/apis/site/v2/sports/soccer";
 const PINNACLE_ROOT = "https://guest.api.arcadia.pinnacle.com/0.1";
 const PINNACLE_SOCCER_ID = 29;
 const PINNACLE_API_KEY = "CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R";
+const ODDS_SNAPSHOT_STORAGE_KEY = "touchline:pinnacleOddsSnapshot:v1";
+const ODDS_MOVEMENTS_STORAGE_KEY = "touchline:pinnacleOddsMovements:v1";
+const MAX_ODDS_MOVEMENTS = 80;
+const ODDS_CHANGE_FIELDS = ["home", "draw", "away"];
 const SPORTSDB_ROOT = "https://www.thesportsdb.com/api/v1/json/3";
 const FORM_LOOKBACK_DAYS = 420;
 const FORM_SAMPLE_SIZE = 5;
@@ -31,6 +35,9 @@ const state = {
   filteredMatches: [],
   failures: [],
   oddsFailures: [],
+  oddsSnapshot: readStoredOddsSnapshot(),
+  oddsMovements: readStoredOddsMovements(),
+  latestOddsChangeCount: 0,
   selectedCompetition: "all",
   query: "",
   rangeDays: 7,
@@ -68,11 +75,13 @@ const elements = {
   leagueBreakdown: document.querySelector("#leagueBreakdown"),
   resultsLabel: document.querySelector("#resultsLabel"),
   stateMessage: document.querySelector("#stateMessage"),
+  oddsMovementPanel: document.querySelector("#oddsMovementPanel"),
   dateRail: document.querySelector("#dateRail"),
   fixturesList: document.querySelector("#fixturesList"),
   drawer: document.querySelector("#matchDrawer"),
   drawerBackdrop: document.querySelector("#drawerBackdrop"),
   drawerClose: document.querySelector("#drawerClose"),
+  drawerEyebrow: document.querySelector("#drawerEyebrow"),
   drawerTitle: document.querySelector("#drawerTitle"),
   drawerBody: document.querySelector("#drawerBody"),
 };
@@ -122,16 +131,19 @@ function formatDateParam(date) {
 }
 
 function getDateWindow(days) {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
+  const visibleStart = new Date();
+  visibleStart.setHours(0, 0, 0, 0);
 
-  const end = new Date(start);
+  const apiStart = new Date(visibleStart);
+  apiStart.setDate(apiStart.getDate() - 1);
+
+  const end = new Date(visibleStart);
   end.setDate(end.getDate() + days);
 
   return {
-    start,
+    start: visibleStart,
     end,
-    apiRange: `${formatDateParam(start)}-${formatDateParam(end)}`,
+    apiRange: `${formatDateParam(apiStart)}-${formatDateParam(end)}`,
   };
 }
 
@@ -273,10 +285,12 @@ async function loadFixtures() {
 async function attachPinnacleOdds(matches) {
   try {
     state.oddsFailures = [];
+    state.latestOddsChangeCount = 0;
     const [pinnacleMatchups, pinnacleMarkets] = await Promise.all([
       fetchPinnacle(`/sports/${PINNACLE_SOCCER_ID}/matchups?withSpecials=false`),
       fetchPinnacle(`/sports/${PINNACLE_SOCCER_ID}/markets/straight?primaryOnly=true&withSpecials=false`),
     ]);
+    const oddsLoadedAt = new Date();
 
     const marketByMatchupId = mapPinnacleMarkets(pinnacleMarkets);
     const candidates = normalizePinnacleMatchups(pinnacleMatchups).filter((matchup) =>
@@ -284,6 +298,7 @@ async function attachPinnacleOdds(matches) {
     );
 
     let matchedCount = 0;
+    state.oddsLoadedAt = oddsLoadedAt;
     for (const match of matches) {
       const matchResult = findPinnacleMatch(match, candidates, marketByMatchupId);
       if (matchResult) {
@@ -295,11 +310,12 @@ async function attachPinnacleOdds(matches) {
     }
 
     state.oddsCoverage = matchedCount;
-    state.oddsLoadedAt = new Date();
+    recordPinnacleOddsMovements(matches, oddsLoadedAt);
     setOddsLoading(false);
   } catch (error) {
     state.oddsCoverage = 0;
     state.oddsLoadedAt = null;
+    state.latestOddsChangeCount = 0;
     state.oddsFailures = [error.message || "Pinnacle odds could not be loaded."];
     matches.forEach((match) => {
       match.odds = null;
@@ -342,6 +358,213 @@ async function fetchPinnacleMarketsForMatch(match) {
   };
   state.marketCache.set(cacheKey, payload);
   return payload;
+}
+
+function readStoredOddsMovements() {
+  const movements = readStoredJson(ODDS_MOVEMENTS_STORAGE_KEY, []);
+  if (!Array.isArray(movements)) {
+    return [];
+  }
+
+  return movements
+    .filter((movement) => movement?.detectedAt && Array.isArray(movement.changes))
+    .sort(compareOddsMovements)
+    .slice(0, MAX_ODDS_MOVEMENTS);
+}
+
+function readStoredOddsSnapshot() {
+  const snapshot = readStoredJson(ODDS_SNAPSHOT_STORAGE_KEY, {});
+  return snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) ? snapshot : {};
+}
+
+function readStoredJson(key, fallback) {
+  const storage = getLocalStorage();
+  if (!storage) {
+    return fallback;
+  }
+
+  try {
+    const raw = storage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function writeStoredJson(key, value) {
+  const storage = getLocalStorage();
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    // Storage can be unavailable in private contexts; the live session still works.
+  }
+}
+
+function getLocalStorage() {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return window.localStorage;
+    }
+    if (typeof localStorage !== "undefined") {
+      return localStorage;
+    }
+  } catch (error) {
+    return null;
+  }
+  return null;
+}
+
+function recordPinnacleOddsMovements(matches, detectedAt) {
+  const previousSnapshot = state.oddsSnapshot || readStoredOddsSnapshot();
+  const nextSnapshot = {};
+  const newMovements = [];
+
+  for (const match of matches) {
+    const snapshot = buildPinnacleOddsSnapshot(match, detectedAt);
+    if (!snapshot) {
+      continue;
+    }
+
+    nextSnapshot[snapshot.key] = snapshot.entry;
+
+    const previous = previousSnapshot[snapshot.key];
+    const changes = buildPinnacleOddsChanges(previous, snapshot.entry, match);
+    if (changes.length) {
+      newMovements.push({
+        id: `${snapshot.key}-${detectedAt.getTime()}-${changes
+          .map((change) => change.designation)
+          .join("-")}`,
+        matchupId: snapshot.key,
+        detectedAt: detectedAt.toISOString(),
+        fixture: snapshot.entry.fixture,
+        home: snapshot.entry.home,
+        away: snapshot.entry.away,
+        competition: snapshot.entry.competition,
+        kickoff: snapshot.entry.kickoff,
+        changes,
+      });
+    }
+  }
+
+  state.latestOddsChangeCount = newMovements.length;
+  state.oddsSnapshot = pruneOddsSnapshot({ ...previousSnapshot, ...nextSnapshot }, detectedAt);
+  writeStoredJson(ODDS_SNAPSHOT_STORAGE_KEY, state.oddsSnapshot);
+
+  if (!newMovements.length) {
+    return;
+  }
+
+  state.oddsMovements = [...newMovements, ...state.oddsMovements]
+    .sort(compareOddsMovements)
+    .slice(0, MAX_ODDS_MOVEMENTS);
+  writeStoredJson(ODDS_MOVEMENTS_STORAGE_KEY, state.oddsMovements);
+}
+
+function buildPinnacleOddsSnapshot(match, capturedAt) {
+  if (!match.odds?.matchupId) {
+    return null;
+  }
+
+  const odds = Object.fromEntries(
+    ODDS_CHANGE_FIELDS.map((field) => [field, Number(match.odds[field])]),
+  );
+
+  if (!ODDS_CHANGE_FIELDS.every((field) => Number.isFinite(odds[field]))) {
+    return null;
+  }
+
+  const key = String(match.odds.matchupId);
+  return {
+    key,
+    entry: {
+      matchupId: key,
+      capturedAt: capturedAt.toISOString(),
+      fixture: `${match.home.name} vs ${match.away.name}`,
+      home: match.home.name,
+      away: match.away.name,
+      competition: match.competition,
+      kickoff: match.date.toISOString(),
+      odds,
+    },
+  };
+}
+
+function buildPinnacleOddsChanges(previous, current, match) {
+  if (!previous?.odds) {
+    return [];
+  }
+
+  return ODDS_CHANGE_FIELDS.map((designation) => {
+    const previousValue = Number(previous.odds[designation]);
+    const currentValue = Number(current.odds[designation]);
+    if (!Number.isFinite(previousValue) || !Number.isFinite(currentValue) || previousValue === currentValue) {
+      return null;
+    }
+
+    return {
+      designation,
+      label: oddsDesignationLabel(designation, match),
+      previous: previousValue,
+      current: currentValue,
+      direction: oddsMoveDirection(previousValue, currentValue),
+    };
+  }).filter(Boolean);
+}
+
+function oddsDesignationLabel(designation, match) {
+  if (designation === "home") {
+    return match.home.shortName || match.home.name || "Home";
+  }
+  if (designation === "away") {
+    return match.away.shortName || match.away.name || "Away";
+  }
+  return "Draw";
+}
+
+function oddsMoveDirection(previous, current) {
+  const previousDecimal = americanToDecimal(previous);
+  const currentDecimal = americanToDecimal(current);
+  if (!Number.isFinite(previousDecimal) || !Number.isFinite(currentDecimal)) {
+    return "moved";
+  }
+  if (currentDecimal < previousDecimal) {
+    return "shortened";
+  }
+  if (currentDecimal > previousDecimal) {
+    return "drifted";
+  }
+  return "moved";
+}
+
+function pruneOddsSnapshot(snapshot, now) {
+  const cutoff = now.getTime() - 45 * 24 * 60 * 60 * 1000;
+  return Object.fromEntries(
+    Object.entries(snapshot).filter(([, entry]) => {
+      const kickoff = Date.parse(entry?.kickoff || "");
+      const captured = Date.parse(entry?.capturedAt || "");
+      return (
+        (Number.isFinite(kickoff) && kickoff >= cutoff) ||
+        (Number.isFinite(captured) && captured >= cutoff)
+      );
+    }),
+  );
+}
+
+function compareOddsMovements(first, second) {
+  const detectedDelta = movementDateMs(second.detectedAt) - movementDateMs(first.detectedAt);
+  if (detectedDelta) {
+    return detectedDelta;
+  }
+  return movementDateMs(first.kickoff) - movementDateMs(second.kickoff);
+}
+
+function movementDateMs(value) {
+  const time = Date.parse(value || "");
+  return Number.isFinite(time) ? time : 0;
 }
 
 async function fetchTeamFormForMatch(match) {
@@ -1372,6 +1595,7 @@ function applyFilters() {
 function render() {
   renderStats();
   renderMessage();
+  renderOddsMovements();
   renderFixtures();
 }
 
@@ -1387,6 +1611,60 @@ function renderStats() {
   elements.nextKickoff.textContent = next ? timeUntil(next.date) : "-";
   elements.timezoneLabel.textContent = timezone.replaceAll("_", " ");
   elements.resultsLabel.textContent = resultLabel();
+}
+
+function renderOddsMovements() {
+  if (!elements.oddsMovementPanel) {
+    return;
+  }
+
+  const hasHistory = state.oddsMovements.length > 0;
+  const hasOddsStatus = Boolean(state.oddsLoadedAt) || hasHistory;
+  if (!hasOddsStatus || (state.oddsFailures.length && !hasHistory)) {
+    elements.oddsMovementPanel.hidden = true;
+    elements.oddsMovementPanel.innerHTML = "";
+    return;
+  }
+
+  elements.oddsMovementPanel.hidden = false;
+
+  if (!hasHistory) {
+    elements.oddsMovementPanel.innerHTML = `
+      <button class="odds-movement-summary is-empty" type="button" disabled>
+        <span class="movement-kicker">Pinnacle moves</span>
+        <span class="movement-main">
+          <strong>No odds changes detected</strong>
+          <span>${state.oddsLoadedAt ? `Last checked ${escapeHtml(timeFormatter.format(state.oddsLoadedAt))}` : "Waiting for the first comparison"}</span>
+        </span>
+      </button>
+    `;
+    return;
+  }
+
+  const latest = state.oddsMovements[0];
+  const latestChangeCount = latest.changes.length;
+  const fetchChangeCount = state.latestOddsChangeCount;
+  const summaryCount =
+    fetchChangeCount > 0
+      ? `${fetchChangeCount} ${fetchChangeCount === 1 ? "fixture moved" : "fixtures moved"} this check`
+      : "No new moves this check";
+
+  elements.oddsMovementPanel.innerHTML = `
+    <button
+      class="odds-movement-summary"
+      id="oddsMovementButton"
+      type="button"
+      aria-haspopup="dialog"
+      aria-label="Open Pinnacle odds change details"
+    >
+      <span class="movement-kicker">Pinnacle moves</span>
+      <span class="movement-main">
+        <strong>${escapeHtml(summaryCount)}</strong>
+        <span>${escapeHtml(latest.fixture)} · ${latestChangeCount} ${latestChangeCount === 1 ? "price" : "prices"} changed at ${escapeHtml(formatMovementTime(latest.detectedAt))}</span>
+      </span>
+      <span class="movement-peek">${escapeHtml(formatMovementChangeSummary(latest))}</span>
+    </button>
+  `;
 }
 
 function renderSpotlight() {
@@ -1606,6 +1884,66 @@ function renderOddsCell(label, value) {
   `;
 }
 
+function openOddsMovementDetails() {
+  state.selectedMatchId = null;
+  state.activeDrawerRequest = null;
+  updateSelectedFixtureCard();
+  showDrawer();
+  setDrawerHeader("Pinnacle movements", "Odds change log");
+
+  elements.drawerBody.innerHTML = renderResearchSection({
+    className: "odds-movement-detail-section",
+    ariaLabel: "Pinnacle odds change history",
+    eyebrow: "Pinnacle 1X2",
+    title: "Recent price changes",
+    note: state.oddsMovements.length
+      ? `${state.oddsMovements.length} logged ${state.oddsMovements.length === 1 ? "move" : "moves"}`
+      : "No changes logged",
+    open: true,
+    content: state.oddsMovements.length
+      ? `<div class="movement-detail-list">${state.oddsMovements.map(renderMovementDetail).join("")}</div>`
+      : `<div class="prop-empty"><h3>No odds changes detected</h3><p>The next Pinnacle refresh will be compared with the latest saved prices.</p></div>`,
+  });
+}
+
+function renderMovementDetail(movement) {
+  const kickoff = parseMovementDate(movement.kickoff);
+  return `
+    <article class="movement-detail-card">
+      <div class="movement-detail-top">
+        <div>
+          <span>${escapeHtml(formatMovementDateTime(movement.detectedAt))}</span>
+          <strong>${escapeHtml(movement.fixture || `${movement.home} vs ${movement.away}`)}</strong>
+          <small>${escapeHtml(movement.competition || "Pinnacle")} ${
+            kickoff ? `· ${escapeHtml(dateFormatter.format(kickoff))} ${escapeHtml(timeFormatter.format(kickoff))}` : ""
+          }</small>
+        </div>
+        <span class="movement-count">${movement.changes.length} ${movement.changes.length === 1 ? "price" : "prices"}</span>
+      </div>
+      <div class="movement-change-grid">
+        ${movement.changes.map(renderMovementChange).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderMovementChange(change) {
+  return `
+    <div class="movement-change is-${escapeAttribute(change.direction || "moved")}">
+      <span>${escapeHtml(change.label || titleCase(change.designation))}</span>
+      <strong>
+        ${escapeHtml(formatDecimalOdds(change.previous))}
+        <small>${escapeHtml(formatAmericanOdds(change.previous))}</small>
+      </strong>
+      <b aria-hidden="true">&rarr;</b>
+      <strong>
+        ${escapeHtml(formatDecimalOdds(change.current))}
+        <small>${escapeHtml(formatAmericanOdds(change.current))}</small>
+      </strong>
+    </div>
+  `;
+}
+
 async function openMatchDetails(matchId) {
   const match = state.allMatches.find((item) => item.id === matchId);
   if (!match) {
@@ -1660,6 +1998,13 @@ function showDrawer() {
   document.body.classList.add("has-drawer");
 }
 
+function setDrawerHeader(eyebrow, title) {
+  if (elements.drawerEyebrow) {
+    elements.drawerEyebrow.textContent = eyebrow;
+  }
+  elements.drawerTitle.textContent = title;
+}
+
 function updateSelectedFixtureCard() {
   elements.fixturesList.querySelectorAll(".fixture-card").forEach((card) => {
     card.classList.toggle("is-selected", card.dataset.matchId === state.selectedMatchId);
@@ -1667,7 +2012,7 @@ function updateSelectedFixtureCard() {
 }
 
 function renderDrawerLoading(match) {
-  elements.drawerTitle.textContent = `${match.home.shortName} vs ${match.away.shortName}`;
+  setDrawerHeader("Match research", `${match.home.shortName} vs ${match.away.shortName}`);
   elements.drawerBody.innerHTML = `
     ${renderDrawerMatchHeader(match)}
     <div class="drawer-loading">
@@ -1711,7 +2056,7 @@ function renderResearchSection({
 
 function renderDrawerEmpty(match, message, form = null) {
   const playerProps = form ? buildPlayerTrendProps(match, form).slice(0, 4) : [];
-  elements.drawerTitle.textContent = `${match.home.shortName} vs ${match.away.shortName}`;
+  setDrawerHeader("Match research", `${match.home.shortName} vs ${match.away.shortName}`);
   elements.drawerBody.innerHTML = `
     ${renderDrawerMatchHeader(match)}
     ${renderResearchSection({
@@ -1872,7 +2217,7 @@ function formatProbability(value) {
 
 function renderDrawerContent(match, payload, props, form) {
   const summary = summarizeMarketBoard(payload.markets);
-  elements.drawerTitle.textContent = `${match.home.shortName} vs ${match.away.shortName}`;
+  setDrawerHeader("Match research", `${match.home.shortName} vs ${match.away.shortName}`);
   elements.drawerBody.innerHTML = `
     ${renderDrawerMatchHeader(match)}
     ${renderFairOddsBoard(match, payload.markets, summary, form, payload.loadedAt)}
@@ -3035,6 +3380,31 @@ function timeUntil(date) {
   return `${minutes}m`;
 }
 
+function formatMovementTime(value) {
+  const date = parseMovementDate(value);
+  return date ? timeFormatter.format(date) : "-";
+}
+
+function formatMovementDateTime(value) {
+  const date = parseMovementDate(value);
+  return date ? `${dateFormatter.format(date)} ${timeFormatter.format(date)}` : "-";
+}
+
+function parseMovementDate(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatMovementChangeSummary(movement) {
+  const change = movement?.changes?.[0];
+  if (!change) {
+    return "Open log";
+  }
+
+  const extra = movement.changes.length > 1 ? ` +${movement.changes.length - 1}` : "";
+  return `${change.label}: ${formatDecimalOdds(change.previous)} to ${formatDecimalOdds(change.current)}${extra}`;
+}
+
 function setLoading(isLoading) {
   elements.refreshButton.disabled = isLoading;
   elements.refreshButton.classList.toggle("is-loading", isLoading);
@@ -3169,6 +3539,15 @@ async function refreshFixtures() {
 }
 
 elements.refreshButton.addEventListener("click", refreshFixtures);
+
+elements.oddsMovementPanel?.addEventListener("click", (event) => {
+  const button = event.target.closest("#oddsMovementButton");
+  if (!button || button.disabled) {
+    return;
+  }
+
+  openOddsMovementDetails();
+});
 
 elements.fixturesList.addEventListener("click", (event) => {
   const card = event.target.closest(".fixture-card[data-match-id]");
